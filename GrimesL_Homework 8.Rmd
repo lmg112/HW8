@@ -1,0 +1,471 @@
+---
+title: "GrimesL_HW8"
+author: "Lauren Grimes"
+date: "4/10/2020"
+output: html_document
+---
+
+#Import Packages
+```{r}
+#install.packages("survminer")#for pairwise diffs
+#install.packages("ggfortify")
+#install.packages("haven")
+library(readr) #for read txt file
+library(survival) #for calculating KM values
+library(survminer)#for pairwise diffs
+library(ggfortify) #for KM curves
+library(readxl) # for reading in excel file
+library(ggplot2) # for plotting KM curve
+library(tidyverse) # for various packages
+library(haven) #for read_csv
+#load data for this exercise
+cerv<- read_csv("SEERcerv2004to2015.csv") #load data for this exercise
+str(cerv)
+
+```
+
+
+
+#Data management for variables used in this problem set (stage_f, event_f, and insurance_f)
+```{r}
+#provide shorter names for variables
+names(cerv)<-c("ID", "age_category","yr_dx", "sex", "race",
+               "insurance", "marital", "%pov", "%edu", "cause_spec_death", 
+               "first_primary", "surv_mo", "vital_stat", "Stage") 
+
+##Recode stage variable as a factor variable and label it
+table(cerv$Stage)
+cerv$stage_f[
+    cerv$Stage=="IA"|
+    cerv$Stage=="IA1"|
+    cerv$Stage=="IA2"|
+    cerv$Stage=="IB"|
+    cerv$Stage=="IB1"|
+    cerv$Stage=="IB2"|
+    cerv$Stage=="INOS"]<-0
+
+cerv$stage_f[
+    cerv$Stage=="IIA"|
+    cerv$Stage=="IIB"|
+    cerv$Stage=="IINOS"]<-1
+
+cerv$stage_f[
+    cerv$Stage=="IIIA"|
+    cerv$Stage=="IIIB"|
+    cerv$Stage=="IIINOS"]<-2
+
+cerv$stage_f[
+    cerv$Stage=="IVA"|
+    cerv$Stage=="IVB"|
+    cerv$Stage=="IVNOS"]<-3
+    
+
+cerv$stage_f<-factor(cerv$stage_f,
+      levels = c(0,1,2,3),
+      labels = c("Stage 1", "Stage 2", "Stage 3", "Stage 4"))
+
+#Recode cause specific death as 1/0 if the person died/did not die of breast cancer 
+cerv$event_f[
+    cerv$cause_spec_death=="Dead (attributable to this cancer dx)"]<-1
+cerv$event_f[
+    cerv$cause_spec_death=="Alive or dead of other cause"|
+    cerv$cause_spec_death=="N/A not first tumor"]<-0
+
+#Recode insurance status as a factor variable and label it
+cerv$insurance_f[
+  cerv$insurance=="Insured"]<-0
+cerv$insurance_f[
+  cerv$insurance=="Insured/No specifics"]<-1
+cerv$insurance_f[
+ cerv$insurance=="Any Medicaid"]<-2
+cerv$insurance_f[
+  cerv$insurance=="Uninsured"]<-3
+cerv$insurance_f<-factor(cerv$insurance_f,
+      levels = c(0,1,2,3),
+      labels = c("Insured", "Insured/No specifics", "Any Medicaid", "Uninsured"))
+```
+
+
+
+#Check variables for correct categorization
+```{r}
+#check recoding
+table(cerv$Stage, cerv$stage_f)
+#check recoding
+table(cerv$cause_spec_death, cerv$event_f)
+table(cerv$insurance, cerv$insurance_f)
+
+#check class of surv_mo
+class(cerv$surv_mo)
+summary(cerv$surv_mo)
+```
+
+
+#Exclusions
+```{r}
+#exclude diagnosis years before 2007 the latest year the insurance variable is available
+cerv<-cerv[which(cerv$yr_dx>2006),]
+
+#exclude those with missing survival months, stage unknown, and insurance unknown
+cerv <- cerv[!(is.na(cerv$surv_mo)),]
+cerv <- cerv[!(is.na(cerv$stage_f)),]
+cerv <- cerv[!(is.na(cerv$insurance_f)),]
+```
+
+#PART 1:
+#1. Plot survival time (surv_mo) by stage at diagnosis using a kernel density curve in those who had the event (i.e. keeping those with event_f=1). Describe any differences that you see.
+```{r}
+class(cerv$surv_mo)
+#it is a character variable so I have to change it to numeric
+
+cerv$surv_mo<-as.numeric(as.character(cerv$surv_mo))
+
+class(cerv$surv_mo)
+#make sure class changed
+
+ggplot(cerv[which(cerv$event_f==1),], aes(surv_mo, color=stage_f)) + 
+  geom_density(alpha=.3) #Histogram overlaid with kernel density curve
+```
+##Description: The higher the cancer stage, the shorter the survival time. 
+
+
+#2. Plot survival time by insurance status at diagnosis using a kernel density curve in those who had the event (i.e. keeping those with event_f=1). Describe any differences that you see.
+```{r}
+ggplot(cerv[which(cerv$event_f==1),], aes(surv_mo, color=insurance_f)) + 
+  geom_density(alpha=.3) #Histogram overlaid with kernel density curve
+```
+
+
+
+3. Get the KM values and plot KM curves for each stage group on one KM plot and for each insurance group on another KM plot. Describe what you see. Note: if you created a new dataset to exclude censored observations for 1 and 2, you need to go back to the dataset that includes censored individuals as these plots should contain those with and without the event (i.e. all subjects in the cerv dataset).
+```{r}
+## Stage
+stage.surv <- survfit(Surv(surv_mo, event_f) ~ stage_f, cerv) #calculates KM survivor function values for plotting, t=persontime at risk, d marks whether they had the event or not, group indicates which 'group' they belong to (e.g. treatment or control, rural vs. urban, old vs. young)
+
+summary(stage.surv) #get KM values
+
+ggsurvplot(stage.surv, cerv = cerv, risk.table = TRUE, conf.int=TRUE, tables.theme = clean_theme()) #another function to do this #TRUE les you know the number of risks 
+
+## Insurance
+insurance.surv <- survfit(Surv(surv_mo, event_f) ~ insurance_f, cerv) #calculates KM survivor function values for plotting, t=persontime at risk, d marks whether they had the event or not, group indicates which 'group' they belong to (e.g. treatment or control, rural vs. urban, old vs. young)
+
+summary(insurance.surv) #get KM values
+
+ggsurvplot(insurance.surv, cerv = cerv, risk.table = TRUE, conf.int=TRUE, tables.theme = clean_theme()) #another function to do this #TRUE les you know the number of risks 
+```
+##Stage description:The probabiliy of survival over time largely decreases as stage increases. The probability of survival of those in stage four is very low compared to the other groups.
+## Insurance descripion: The probabiliy of survival over time slightly decreases as insurance status quality decreases.The order of decrease is: Insured, Insured/No specifics, Any Medicaid, and Uninsured. 
+
+
+4. Determine the median survival time for each group (stage_f and insurance_f). Describe the differences. Note: if you cannot determine median survival for any of the groups, describe why and indicate the lower bound for median survival (e.g. > X months). You can get this from the table of KM values produced in #3.
+```{r}
+stage.surv #Median survival
+insurance.surv #Median survival
+```
+##Stage: There are no median values recorded for all of the stages except for stage 3, because they are all closely aligned with each other. The lower median survival time for Stage 1 is > 108 months, for Stage 2 is > 106 months, for Stage 3 is > 114 months, and for Stage 4 is 13.
+## Insurance: There are no median values recorded for all of the stages because they are all closely aligned with each other.The median survival time for Insured is > 108 months, for Innsured/No specifics is > 114 months, for Any Medicaid is > 109 months, and for uninsured is > 99 months.
+
+
+5. Conduct a log-rank test to determine if there are any overall differences in cervical cancer survival by stage at diagnosis and insurance status. Conduct a post-hoc log rank test to determine which groups have differences. For post-hoc use the pairwise_survdiff function. Describe your findings.
+```{r}
+survdiff(Surv(surv_mo, event_f) ~stage_f,data=cerv)
+#
+
+survdiff(Surv(surv_mo, event_f) ~insurance_f,data=cerv)
+#
+
+pairwise_survdiff(Surv(surv_mo, event_f) ~stage_f,data=cerv)
+
+pairwise_survdiff(Surv(surv_mo, event_f) ~insurance_f,data=cerv)
+```
+##Findings: There are overall differences in cervical cancer survival by stage at diagnosis and by insurance status.For stage at diagnosis, there are significant differences between each stage. For insurance status, there are significant differences between insured and insured/no specifics, insured and any medicade, and insured and uninsured. There are also differences between insured/no specifics and uninsured as well as between any medicaid and uninsured.
+
+
+
+#PART 2:
+#1. Run a univariate Cox proportional hazards models to calculate HRs and 95% CIs for associations between: a) stage at diagnosis and death and b) insurance status at diagnosis and death. Interpret your results including confidence intervals.
+ 
+```{r}
+stage.mod<-coxph(Surv(surv_mo, event_f)~stage_f, cerv, ties="efron") #using ties = Efron, default is Efron, which is fine but this is how it would be changed.
+summary(stage.mod)
+
+insurance.mod<-coxph(Surv(surv_mo, event_f)~insurance_f, cerv, ties="efron") #using ties = Efron, default is Efron, which is fine but this is how it would be changed.
+summary(insurance.mod)
+
+
+```
+#Stage Interpretation: Those in stage 2 had a 4.47 (95% CI 4.06-4.93) times higher hazard of death than those in stage 1. Those in stage 3 had a 8.31 (95% CI 7.66-9.03) times higher hazard of death than those in stage 1. Those in stage 4 had a 26.70 (95% CI 24.63-28.94) times higher hazard of death than those in stage 1.
+#Insurance Interpretation: Those in the Insured/No specifics category had a 1.48 (95% CI 1.37-1.60) times higher hazard of death than those who were in the Insured category.Those in the Medicaid category had a 1.57 (95% CI 1.49-1.67) times higher hazard of death than those who were in the Insured category. Those in the Uninsured category had a 1.80 (95% CI 1.65-1.96) times higher hazard of death than those who were in the Insured category.
+
+ 
+             
+
+#Run the code below before writing code for #2 to extract age as a number from the age_category variable. Note: In practice, we would not assume everyone who is 85+ is 85 as we are doing in this exercise. We might instead see if we could get another variable to measure age more accurately or create age categories.
+```{r}
+cerv <- cerv %>%
+   mutate(age = parse_number(age_category))
+
+
+```
+
+
+
+2. Adjust each of your models for the potential confounder age at diagnosis (age). Interpret your results and include confidence intervals in your interpretation.
+```{r}
+stage_adj.mod<-coxph(Surv(surv_mo, event_f)~stage_f + age, cerv)
+summary(stage_adj.mod)
+
+insurance_adj.mod<-coxph(Surv(surv_mo, event_f)~insurance_f + age, cerv)
+summary(insurance_adj.mod)
+```
+#Stage Interpretation: After adjusting for age, those in stage 2 had a 4.05 (95% CI 3.67-4.47) times higher hazard of death than those in stage 1. After adjusting for age, those in stage 3 had a 7.85 (95% CI 7.23-8.52) times higher hazard of death than those in stage 1.After adjusting for age, those in stage 4 had a 24.21 (95% CI 22.31-26.27) times higher hazard of death than those in stage 1.
+
+#Insurance Interpretation: After adjusting for age, those in the Insured/No specifics category had a 1.26 (95% CI 1.16-1.36) times higher hazard of death than those who were in the Insured category.After adjusting for age, those in the Medicaid category had a 1.64 (95% CI 1.55-1.73) times higher hazard of death than those who were in the Insured category. After adjusting for age, those in the Uninsured category had a 1.94 (95% CI 1.77-2.12) times higher hazard of death than those who were in the Insured category.
+
+
+3. Compare models (i.e. the two models for stage and the two models for insurance) using the liklihood ratio test.
+```{r}
+library(lmtest) #model comparison
+
+lrtest(stage.mod, stage_adj.mod)
+
+lrtest(insurance.mod, insurance_adj.mod)
+
+```
+
+
+
+4. Plot the adjusted survival curves for stage at diagnosis and insurance status at diagnosis using the mean value of age. Describe what you see.
+```{r}
+# Create the new data for plotting adjusted survival curves for each stage using age at the mean
+stage_df <- with(cerv, data.frame(stage_f = c("Stage 1", "Stage 2", "Stage 3", "Stage 4"), age=rep(mean(age, na.rm = TRUE),2)))
+stage_df
+
+library(MASS)#for log log survival curves
+library(foreign)
+#problem with survminer ggsurvplot function that won't allow it to take model objects solved with code below. see: https://github.com/kassambara/survminer/issues/324
+fit1<-survfit(stage_adj.mod, newdata = stage_df)
+fit1$call$formula <- eval(fit1$call$formula)
+
+ggsurvplot(fit1, data=cerv, conf.int = TRUE, legend.labs=c("Stage 1", "Stage 2", "Stage 3", "Stage 4"),  ggtheme = theme_minimal()) 
+
+
+# Create the new data for plotting adjusted survival curves for each insurance status using age at the mean
+insurance_df <- with(cerv, data.frame(insurance_f = c("Insured", "Insured/No specifics", "Any Medicaid", "Uninsured"), age=rep(mean(age, na.rm = TRUE),2)))
+insurance_df
+
+#problem with survminer ggsurvplot function that won't allow it to take model objects solved with code below. see: https://github.com/kassambara/survminer/issues/324
+fit2<-survfit(insurance_adj.mod, newdata = insurance_df)
+fit2$call$formula <- eval(fit2$call$formula)
+
+ggsurvplot(fit2, data=cerv, conf.int = TRUE, legend.labs=c("Insured", "Insured/No specifics", "Any Medicaid", "Uninsured"),  ggtheme = theme_minimal()) 
+
+
+```
+#Stage Description: As shown in the graph in part 1 of the assignment, even after adjusting for age,the probabiliy of survival over time still largely decreases as stage increases. The probability of survival of those in stage four is still very low compared to the other groups.
+#Stage Description: As shown in the graph in part 1 of the assignment, even after adjusting for age, the probabiliy of survival over time slightly decreases as insurance status quality decreases.The order of decrease is: Insured, Insured/No specifics, Any Medicaid, and Uninsured.However, in this model, there isn't a visible gap between the lines for the "Insured" and "Insured/No specifics" categories
+
+
+
+5. a) Check for linearity of the age term in the stage and insurance models and b) check for influential observations in the age-adjusted stage and insurance models. Comment on the results. Note: You do not have to remove influential observations in your analysis.
+```{r}
+#check for linearity of the age term
+age.times.age<- cerv$age * log(cerv$age)#create term to test linearity
+
+boxTidwellage <- coxph(Surv(surv_mo, event_f)~stage_f + age + age.times.age, cerv)
+summary(stage_adj.mod) #Box Tidwell technique, test the assumption of linearity
+
+summary(boxTidwellage)
+
+
+#check for linearity of the age term
+age.times.age<- cerv$age * log(cerv$age)#create term to test linearity
+
+boxTidwellage <- coxph(Surv(surv_mo, event_f)~insurance_f + age + age.times.age, cerv)
+summary(insurance_adj.mod) #Box Tidwell technique, test the assumption of linearity
+
+summary(boxTidwellage)
+
+
+#check for influential observations
+stage_adj.mod<-coxph(Surv(surv_mo, event_f)~stage_f + age, cerv)
+summary(stage_adj.mod)
+
+ggcoxdiagnostics(stage_adj.mod, type = "dfbeta", sline=FALSE, ggtheme = theme_bw()) #the pattern should not change the beta by a large degree. Here the betas for logwbc change by a factor of less than +/-0.2 for all covariates 
+
+
+#check for influential observations
+insurance_adj.mod<-coxph(Surv(surv_mo, event_f)~insurance_f + age, cerv)
+summary(insurance_adj.mod)
+
+ggcoxdiagnostics(insurance_adj.mod, type = "dfbeta", sline=FALSE, ggtheme = theme_bw()) #the pattern should not change the beta by a large degree. Here the betas for logwbc change by a factor of less than +/-0.2 for all covariates
+
+
+```
+
+
+
+
+#PART 3:
+#1. Check the PH assumption for your age-adjusted Cox stage and insurance models using the cox.zph function (include the terms=FALSE option. For more information on why, see: https://stat.ethz.ch/R-manual/R-devel/library/survival/html/cox.zph.html) and plot Schoenfeld residuals by time for the two Cox models from HW8 Part II question 2. Explain whether the PH assumption is violated and if it is describe one approach to address it.
+```{r}
+#Install and load packages
+library(survRM2)
+library(gtools)
+library(magrittr)
+library(mlr)
+
+
+#Look at the variables
+dput(names(cerv))
+
+#Cox PH regression
+Coxmod1<-coxph(Surv(surv_mo, event_f)~age + stage_f, cerv, ties="efron")
+
+#Display the model results
+summary(Coxmod1)
+
+
+
+#Cox PH regression
+Coxmod2<-coxph(Surv(surv_mo, event_f)~age + insurance_f, cerv, ties="efron")
+
+#Display the model results
+summary(Coxmod2)
+
+
+#Check PH assumption using the Schoenfeld goodness-of-fit test 
+test.ph1<-cox.zph(Coxmod1, terms=FALSE)
+test.ph1
+#The PH assumption was violated on sex 
+
+#Check PH assumption using the Schoenfeld goodness-of-fit test 
+test.ph2<-cox.zph(Coxmod2, terms=FALSE)
+test.ph2
+#The PH assumption was violated on sex
+```
+#Stage Explanation: The PH assumption was violated on Stages 2-4.
+#Insurance Explanation: The PH assumption was violated on the Insured/No specifics category. One way of to approach this violation is to use the restricted mean survival time (RMST) analysis.This can be used to find the average event-free survival time up until a specific time. 
+
+
+
+##2. Run an univariate RMST analysis to calculate RMST and their difference within 60 months follow-up window between Insured/No specifics, Any Medicaid, Uninsured and private insurance. Interpret your results including the RMST for all insurance groups and their differences in RMST vs. private insurance.
+Additional data preparation for RMST analysis
+```{r}
+#Load variables
+pacman::p_load(tidyverse, survival, survminer, survRM2, haven, gtools, magrittr, mlr)
+
+#Change survival months to numeric variables
+cerv$surv_mo <- as.numeric(cerv$surv_mo)
+
+#Change insurance and stage levels back to numbers
+cerv$insurance_num[
+  cerv$insurance=="Insured"]<-0
+cerv$insurance_num[
+  cerv$insurance=="Insured/No specifics"]<-1
+cerv$insurance_num[
+ cerv$insurance=="Any Medicaid"]<-2
+cerv$insurance_num[
+  cerv$insurance=="Uninsured"]<-3
+
+cerv$stage_num[
+    cerv$Stage=="IA"|
+    cerv$Stage=="IA1"|
+    cerv$Stage=="IA2"|
+    cerv$Stage=="IB"|
+    cerv$Stage=="IB1"|
+    cerv$Stage=="IB2"|
+    cerv$Stage=="INOS"]<-0
+
+cerv$stage_num[
+    cerv$Stage=="IIA"|
+    cerv$Stage=="IIB"|
+    cerv$Stage=="IINOS"]<-1
+
+cerv$stage_num[
+    cerv$Stage=="IIIA"|
+    cerv$Stage=="IIIB"|
+    cerv$Stage=="IIINOS"]<-2
+
+cerv$stage_num[
+    cerv$Stage=="IVA"|
+    cerv$Stage=="IVB"|
+    cerv$Stage=="IVNOS"]<-3
+
+#Check
+table(cerv$insurance, cerv$insurance_num)
+table(cerv$Stage, cerv$stage_num)
+
+#It takes time to execute RMST analysis in R. To reduce the running time, the code below randomly draws 200 participants from the overall sample. 
+#Due to the randomization procedure applied, the results from this random sample can at least generalize to the overall sample.
+#To make sure we all get the same dataset, you need to set a seed number
+set.seed(12345678)
+cerv_sample <- sample_n(cerv, 200)
+
+#As the insurance variable has more than two levels, you need to use the rmst2_plus function that we created in class to estimate the RMST for all insurance groups, and their differences vs. private insurance
+#Run the code below before further step
+rmst2_plus <- function(data, time, status, arm, nlevel, ntime, ...){
+  #nlevel: the number of levels of variable of interest minus 1
+  for (i in 1:nlevel) {
+    #level = 1, run the RMST model
+    if (i==1) {
+      print("########################################################")
+      print(paste0("Below display the model results of arm =", i, " vs. arm = 0."))
+      print(data %$%rmst2(time, status, arm, tau=ntime, ...))
+    }
+    #level > 1, change all levels to MA other than baseline level and the target level
+    if (i>1) {
+    print("#########################################################")
+    print(paste0("Below display the model results of arm =", i, " vs. arm = 0."))
+    print(
+      data %>%
+         mutate(arm=replace(arm, arm<i & arm>0, NA),
+                arm=replace(arm, arm==i, 1)) %>%
+         filter(!is.na(arm)) %$%
+         rmst2(time, status, arm, tau=ntime, ...)
+      )
+     }
+   }
+}
+
+#The function above only recognizes certain variables, excecute the code below to prepare for the data
+
+cerv_sample$time <- cerv_sample$surv_mo
+cerv_sample$status <- cerv_sample$event_f
+cerv_sample$arm <- cerv_sample$insurance_num
+
+
+#Recode insurance to make the reference levels as 0
+#Create a time variable
+cerv_sample <- cerv_sample %>%
+  mutate(insurance_ref=insurance_f-1,
+         arm=insurance_ref,
+         time=surv_mo)
+
+#Check
+table(cerv_sample$insurance_f, cerv_sample$arm)
+
+#RMST model
+rmst2_plus(cerv_sample, time, status, arm, 3, 60)
+
+
+```
+##Interpretation:
+
+
+#3. Run an univariate RMST analysis to calculate RMST and their difference within 60 months follow-up window between stages II, III, IV and stage I. Interpret your results including the RMST for all stage groups and their differences in RMST vs. stage I.
+Please run the code below to prepare the data before running RMST analysis
+```{r}
+#The function above only recognizes certain variables, excecute the code below to prepare for the data
+cerv_sample$arm <- cerv_sample$stage_num
+
+#Check
+table(cerv_sample$stage_f, cerv_sample$arm)
+
+#RMST model
+rmst2_plus(cerv_sample, time, status, arm, 3, 60)
+```
+##Interpretation: 
+
+
+
